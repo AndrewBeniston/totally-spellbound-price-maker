@@ -1,0 +1,12 @@
+# Source/working files — not needed in the deployed app.
+*.tif
+*.miff
+emblem-01.png
+emblem-01-1900.png
+emblem-01-no_text.png
+emblem-template-small.png
+totally_spellbound.png
+
+# OS / editor
+.DS_Store
+*.swp

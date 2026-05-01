@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Totally Spellbound — A4 Emblem Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    background: #f4f1ec;
+    color: #2a2a2a;
+    display: flex;
+    min-height: 100vh;
+  }
+  .sidebar {
+    width: 340px;
+    flex-shrink: 0;
+    padding: 28px 24px;
+    background: #fff;
+    border-right: 1px solid #e6e1d8;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow-y: auto;
+    max-height: 100vh;
+  }
+  .sidebar h1 {
+    margin: 0;
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    color: #5B2A8C;
+    font-weight: 900;
+  }
+  .sidebar p.tagline {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    color: #888;
+  }
+  label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #777;
+    font-weight: 600;
+  }
+  input[type=text] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #d8d3c8;
+    border-radius: 6px;
+    font-size: 15px;
+    font-family: inherit;
+    background: #fff;
+  }
+  input[type=text]:focus { outline: 2px solid #5B2A8C; border-color: transparent; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  button {
+    margin-top: 14px;
+    padding: 14px;
+    background: #5B2A8C;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: #6e35a3; }
+  button:disabled { background: #aaa; cursor: not-allowed; }
+  .preview {
+    flex: 1;
+    padding: 24px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow: auto;
+  }
+  .preview canvas {
+    max-width: 100%;
+    max-height: calc(100vh - 48px);
+    height: auto;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+    background: #fff;
+  }
+  .status {
+    font-size: 13px;
+    color: #888;
+    margin-top: 4px;
+    min-height: 18px;
+  }
+  .meta {
+    margin-top: 8px;
+    padding-top: 14px;
+    border-top: 1px solid #eee;
+    font-size: 11px;
+    color: #999;
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <h1>Totally Spellbound</h1>
+  <p class="tagline">A4 sticker sheet · 300 DPI · 1.25" emblems · 6 × 9 grid (54 per page)</p>
+
+  <div class="field">
+    <label for="line1">Crystal Name (Title)</label>
+    <input id="line1" type="text" value="Clear Quartz">
+  </div>
+  <div class="field">
+    <label for="line2">Property Line 1</label>
+    <input id="line2" type="text" value="Amplifies Energy">
+  </div>
+  <div class="field">
+    <label for="line3">Property Line 2</label>
+    <input id="line3" type="text" value="Spiritual Growth">
+  </div>
+  <div class="field">
+    <label for="line4">Property Line 3</label>
+    <input id="line4" type="text" value="Clearing Negativity">
+  </div>
+  <div class="field">
+    <label for="price">Price</label>
+    <input id="price" type="text" value="£2.50">
+  </div>
+
+  <button id="download">Download A4 PNG (300 DPI)</button>
+  <div class="status" id="status">Loading template…</div>
+
+  <div class="meta">
+    Output: 2480 × 3508 px (A4 @ 300 DPI). Filename auto-named from the crystal title.
+  </div>
+</aside>
+
+<main class="preview">
+  <canvas id="canvas" width="2480" height="3508"></canvas>
+</main>
+
+<script src="template.js"></script>
+<script>
+const PAGE_W = 2480;          // A4 width @ 300 DPI
+const PAGE_H = 3508;          // A4 height @ 300 DPI
+const DPI = 300;
+const EMBLEM_INCHES = 1.25;
+const CELL_W = Math.round(EMBLEM_INCHES * DPI);   // 375 (1.25")
+const CELL_H = Math.round(CELL_W * 1200 / 1171);  // 384 (matches template aspect)
+const COLS = Math.floor(PAGE_W / CELL_W);         // 6
+const ROWS = Math.floor(PAGE_H / CELL_H);         // 9
+const GRID_W = CELL_W * COLS;
+const GRID_H = CELL_H * ROWS;
+const OFFSET_X = Math.floor((PAGE_W - GRID_W) / 2);
+const OFFSET_Y = Math.floor((PAGE_H - GRID_H) / 2);
+
+// Logo (template) and price are fixed. The title + visible description
+// lines render as a single block, vertically centred in the space between
+// the logo and the price. Empty description lines collapse out cleanly.
+const LAYOUT = {
+  title: { minPct: 0.072, maxPct: 0.122, weight: 900 },
+  desc:  { minPct: 0.046, maxPct: 0.075, weight: 700 },
+  price: { yPct: 0.830, minPct: 0.075, maxPct: 0.122, weight: 900 },
+  // Vertical band where the centred text block lives.
+  band:  { topPct: 0.290, bottomPct: 0.755, biasPct: 0.025 },
+  // Vertical gap after each kind of line.
+  gap:   { afterTitlePct: 0.015, betweenDescPct: 0.020 },
+};
+
+const PURPLE = "#5B2A8C";
+const MID    = "#4A4AA0";
+const TEAL   = "#2A8AA8";
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
+
+const inputs = {
+  line1: document.getElementById('line1'),
+  line2: document.getElementById('line2'),
+  line3: document.getElementById('line3'),
+  line4: document.getElementById('line4'),
+  price: document.getElementById('price'),
+};
+const statusEl = document.getElementById('status');
+
+let templateImg = null;
+
+const cellCanvas = document.createElement('canvas');
+cellCanvas.width = CELL_W;
+cellCanvas.height = CELL_H;
+const cellCtx = cellCanvas.getContext('2d');
+cellCtx.imageSmoothingEnabled = true;
+cellCtx.imageSmoothingQuality = 'high';
+
+function loadTemplate() {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = (e) => reject(e);
+    img.src = "data:image/png;base64," + TEMPLATE_BASE64;
+  });
+}
+
+const FONT_STACK = '"Playfair Display", "Times New Roman", serif';
+
+// Find the largest font size ≤ maxSize such that text fits in maxWidth.
+// Floors at minSize even if the text still overflows (auto-shrink has limits).
+function fitSize(c, text, maxWidth, minSize, maxSize, weight) {
+  if (!text) return maxSize;
+  let size = maxSize;
+  c.font = `${weight} ${size}px ${FONT_STACK}`;
+  let guard = 400;
+  while (size > minSize && c.measureText(text).width > maxWidth && guard-- > 0) {
+    size -= 0.5;
+    c.font = `${weight} ${size}px ${FONT_STACK}`;
+  }
+  return size;
+}
+
+// Find the size that fits the longest of several texts in the same width.
+// Used to keep the 3 description lines visually consistent.
+function fitGroupSize(c, texts, maxWidth, minSize, maxSize, weight) {
+  let smallest = maxSize;
+  for (const t of texts) {
+    if (!t) continue;
+    const s = fitSize(c, t, maxWidth, minSize, maxSize, weight);
+    if (s < smallest) smallest = s;
+  }
+  return smallest;
+}
+
+function drawText(c, text, x, y, size, weight) {
+  if (!text) return;
+  c.font = `${weight} ${size}px ${FONT_STACK}`;
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  const measured = c.measureText(text).width;
+  const grad = c.createLinearGradient(x - measured/2, y, x + measured/2, y);
+  grad.addColorStop(0, PURPLE);
+  grad.addColorStop(0.55, MID);
+  grad.addColorStop(1, TEAL);
+  c.fillStyle = grad;
+  c.fillText(text, x, y);
+}
+
+function renderCell() {
+  const w = CELL_W, h = CELL_H;
+  cellCtx.clearRect(0, 0, w, h);
+  if (templateImg) cellCtx.drawImage(templateImg, 0, 0, w, h);
+
+  const cx = w / 2;
+  const maxTextWidth = w * 0.82;
+
+  // Auto-fit font sizes
+  const titleText = inputs.line1.value.trim();
+  const descTexts = [inputs.line2.value, inputs.line3.value, inputs.line4.value]
+    .map(t => t.trim()).filter(Boolean);
+  const priceText = inputs.price.value.trim();
+
+  const titleSize = fitSize(
+    cellCtx, titleText, maxTextWidth,
+    h * LAYOUT.title.minPct, h * LAYOUT.title.maxPct, LAYOUT.title.weight
+  );
+  const descSize = fitGroupSize(
+    cellCtx, descTexts, maxTextWidth,
+    h * LAYOUT.desc.minPct, h * LAYOUT.desc.maxPct, LAYOUT.desc.weight
+  );
+  const priceSize = fitSize(
+    cellCtx, priceText, maxTextWidth,
+    h * LAYOUT.price.minPct, h * LAYOUT.price.maxPct, LAYOUT.price.weight
+  );
+
+  // Build the visible block: title (if any) + each filled description.
+  const items = [];
+  if (titleText) items.push({ text: titleText, size: titleSize, weight: LAYOUT.title.weight, gapAfter: h * LAYOUT.gap.afterTitlePct });
+  descTexts.forEach(t => items.push({ text: t, size: descSize, weight: LAYOUT.desc.weight, gapAfter: h * LAYOUT.gap.betweenDescPct }));
+
+  // Total stack height = sum of line heights + gaps between (no gap after the last item).
+  let stackH = 0;
+  for (let i = 0; i < items.length; i++) {
+    stackH += items[i].size;
+    if (i < items.length - 1) stackH += items[i].gapAfter;
+  }
+
+  // Centre the block in the band [topPct, bottomPct], with a small downward bias.
+  const bandTop = h * LAYOUT.band.topPct;
+  const bandBottom = h * LAYOUT.band.bottomPct;
+  const bandCentre = (bandTop + bandBottom) / 2 + h * LAYOUT.band.biasPct;
+  let cursorY = bandCentre - stackH / 2;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    drawText(cellCtx, item.text, cx, cursorY + item.size / 2, item.size, item.weight);
+    cursorY += item.size + (i < items.length - 1 ? item.gapAfter : 0);
+  }
+
+  // Price always anchored at the bottom.
+  drawText(cellCtx, priceText, cx, h * LAYOUT.price.yPct, priceSize, LAYOUT.price.weight);
+}
+
+function renderPage() {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+  renderCell();
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      ctx.drawImage(cellCanvas, OFFSET_X + col * CELL_W, OFFSET_Y + row * CELL_H);
+    }
+  }
+}
+
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+async function pngWithDPI(blob, dpi) {
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const ppm = Math.round(dpi / 0.0254);
+  const data = new Uint8Array(9);
+  const dv = new DataView(data.buffer);
+  dv.setUint32(0, ppm, false);
+  dv.setUint32(4, ppm, false);
+  data[8] = 1;
+  const type = new Uint8Array([0x70, 0x48, 0x59, 0x73]);
+  const lenBytes = new Uint8Array(4);
+  new DataView(lenBytes.buffer).setUint32(0, 9, false);
+  const crcInput = new Uint8Array(type.length + data.length);
+  crcInput.set(type, 0);
+  crcInput.set(data, type.length);
+  const crc = crc32(crcInput);
+  const crcBytes = new Uint8Array(4);
+  new DataView(crcBytes.buffer).setUint32(0, crc, false);
+  const chunk = new Uint8Array(lenBytes.length + type.length + data.length + crcBytes.length);
+  chunk.set(lenBytes, 0);
+  chunk.set(type, 4);
+  chunk.set(data, 8);
+  chunk.set(crcBytes, 17);
+  const insertAt = 8 + 4 + 4 + 13 + 4;
+  const out = new Uint8Array(buf.length + chunk.length);
+  out.set(buf.subarray(0, insertAt), 0);
+  out.set(chunk, insertAt);
+  out.set(buf.subarray(insertAt), insertAt + chunk.length);
+  return new Blob([out], { type: 'image/png' });
+}
+
+function slugify(s) {
+  return (s || 'emblem').toString().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'emblem';
+}
+
+async function download() {
+  const btn = document.getElementById('download');
+  btn.disabled = true;
+  statusEl.textContent = "Generating PNG…";
+  await new Promise(r => setTimeout(r, 50));
+  renderPage();
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  const dpiBlob = await pngWithDPI(blob, 300);
+  const filename = "totally-spellbound-" + slugify(inputs.line1.value) + "-A4-300dpi.png";
+  const url = URL.createObjectURL(dpiBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  statusEl.textContent = "Saved: " + filename;
+  btn.disabled = false;
+}
+
+async function init() {
+  try {
+    await Promise.all([
+      document.fonts.load('900 60px "Playfair Display"'),
+      document.fonts.load('800 40px "Playfair Display"'),
+      document.fonts.load('700 40px "Playfair Display"'),
+    ]);
+  } catch (e) { /* fall back to serif */ }
+
+  try {
+    templateImg = await loadTemplate();
+  } catch (e) {
+    statusEl.textContent = "Couldn't load template image.";
+    return;
+  }
+
+  Object.values(inputs).forEach(input => {
+    input.addEventListener('input', renderPage);
+  });
+  document.getElementById('download').addEventListener('click', download);
+
+  renderPage();
+  statusEl.textContent = "Ready.";
+}
+
+init();
+</script>
+</body>
+</html>
