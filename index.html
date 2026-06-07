@@ -47,7 +47,7 @@
     color: #777;
     font-weight: 600;
   }
-  input[type=text] {
+  input[type=text], input[type=number] {
     width: 100%;
     padding: 10px 12px;
     border: 1px solid #d8d3c8;
@@ -56,8 +56,19 @@
     font-family: inherit;
     background: #fff;
   }
-  input[type=text]:focus { outline: 2px solid #5B2A8C; border-color: transparent; }
+  input[type=text]:focus, input[type=number]:focus { outline: 2px solid #5B2A8C; border-color: transparent; }
   .field { display: flex; flex-direction: column; gap: 4px; }
+  .grid-row { display: flex; gap: 12px; }
+  .grid-row .field { flex: 1; }
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #5B2A8C;
+    font-weight: 700;
+  }
+  .divider { border-top: 1px solid #eee; margin: 6px 0 2px; }
+  .grid-info { font-size: 12px; color: #888; margin-top: 2px; }
   button {
     margin-top: 14px;
     padding: 14px;
@@ -105,7 +116,21 @@
 <body>
 <aside class="sidebar">
   <h1>Totally Spellbound</h1>
-  <p class="tagline">A4 sticker sheet · 300 DPI · 1.25" emblems · 6 × 9 grid (54 per page)</p>
+  <p class="tagline">A4 sticker sheet · 300 DPI · 1.25" emblems</p>
+
+  <div class="section-label">Sheet layout</div>
+  <div class="grid-row">
+    <div class="field">
+      <label for="cols">Across (columns)</label>
+      <input id="cols" type="number" min="1" max="6" step="1" value="6">
+    </div>
+    <div class="field">
+      <label for="rows">Down (rows)</label>
+      <input id="rows" type="number" min="1" max="9" step="1" value="9">
+    </div>
+  </div>
+  <div class="grid-info" id="gridInfo">6 × 9 = 54 emblems per sheet</div>
+  <div class="divider"></div>
 
   <div class="field">
     <label for="line1">Crystal Name (Title)</label>
@@ -148,12 +173,22 @@ const DPI = 300;
 const EMBLEM_INCHES = 1.25;
 const CELL_W = Math.round(EMBLEM_INCHES * DPI);   // 375 (1.25")
 const CELL_H = Math.round(CELL_W * 1200 / 1171);  // 384 (matches template aspect)
-const COLS = Math.floor(PAGE_W / CELL_W);         // 6
-const ROWS = Math.floor(PAGE_H / CELL_H);         // 9
-const GRID_W = CELL_W * COLS;
-const GRID_H = CELL_H * ROWS;
-const OFFSET_X = Math.floor((PAGE_W - GRID_W) / 2);
-const OFFSET_Y = Math.floor((PAGE_H - GRID_H) / 2);
+// Most tiles that fit at the fixed emblem size — the reference 6 × 9 sheet.
+const MAX_COLS = Math.floor(PAGE_W / CELL_W);     // 6
+const MAX_ROWS = Math.floor(PAGE_H / CELL_H);     // 9
+
+// The spread area is frozen to the full 6 × 9 extent, so any smaller grid
+// fans its emblems out across the SAME width and height they cover today
+// (same outer margins: 115px left/right, 26px top/bottom). Tile size is
+// never touched, so the price — sized off CELL_H — stays identical.
+const AREA_X = Math.floor((PAGE_W - CELL_W * MAX_COLS) / 2);   // 115
+const AREA_Y = Math.floor((PAGE_H - CELL_H * MAX_ROWS) / 2);   // 26
+const AREA_W = CELL_W * MAX_COLS;                              // 2250
+const AREA_H = CELL_H * MAX_ROWS;                              // 3456
+
+// Live grid (editable). Defaults to the original 6 × 9 = 54 sheet.
+let cols = MAX_COLS;
+let rows = MAX_ROWS;
 
 // Logo (template) and price are fixed. The title + visible description
 // lines render as a single block, vertically centred in the space between
@@ -185,6 +220,45 @@ const inputs = {
   price: document.getElementById('price'),
 };
 const statusEl = document.getElementById('status');
+
+const gridInputs = {
+  cols: document.getElementById('cols'),
+  rows: document.getElementById('rows'),
+};
+const gridInfoEl = document.getElementById('gridInfo');
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Evenly spread n tiles across [areaStart, areaStart + areaSpan]: first tile
+// flush to the start, last tile flush to the end, the rest spaced evenly
+// between. Returns the top-left coordinate of each tile (size = cell, fixed).
+// At n = MAX this reproduces the original edge-to-edge packing exactly.
+function axisPositions(n, areaStart, areaSpan, cell) {
+  if (n <= 1) return [areaStart + (areaSpan - cell) / 2];
+  const step = (areaSpan - cell) / (n - 1);
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(areaStart + i * step);
+  return out;
+}
+
+function updateGridInfo() {
+  if (gridInfoEl) gridInfoEl.textContent = `${cols} × ${rows} = ${cols * rows} emblems per sheet`;
+}
+
+// Read the grid inputs, clamped to what fits at the fixed emblem size.
+// reflect=true writes the clamped value back into the field (use on change/blur,
+// not on every keystroke, so mid-typing isn't fought).
+function readGrid(reflect) {
+  const c = parseInt(gridInputs.cols.value, 10);
+  const r = parseInt(gridInputs.rows.value, 10);
+  cols = clamp(isNaN(c) ? MAX_COLS : c, 1, MAX_COLS);
+  rows = clamp(isNaN(r) ? MAX_ROWS : r, 1, MAX_ROWS);
+  if (reflect) {
+    gridInputs.cols.value = cols;
+    gridInputs.rows.value = rows;
+  }
+  updateGridInfo();
+}
 
 let templateImg = null;
 
@@ -304,9 +378,11 @@ function renderPage() {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, PAGE_W, PAGE_H);
   renderCell();
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      ctx.drawImage(cellCanvas, OFFSET_X + col * CELL_W, OFFSET_Y + row * CELL_H);
+  const xs = axisPositions(cols, AREA_X, AREA_W, CELL_W);
+  const ys = axisPositions(rows, AREA_Y, AREA_H, CELL_H);
+  for (const y of ys) {
+    for (const x of xs) {
+      ctx.drawImage(cellCanvas, Math.round(x), Math.round(y));
     }
   }
 }
@@ -401,8 +477,14 @@ async function init() {
   Object.values(inputs).forEach(input => {
     input.addEventListener('input', renderPage);
   });
+  // Live update while typing (no reflect); clamp + reflect on commit.
+  ['cols', 'rows'].forEach(key => {
+    gridInputs[key].addEventListener('input', () => { readGrid(false); renderPage(); });
+    gridInputs[key].addEventListener('change', () => { readGrid(true); renderPage(); });
+  });
   document.getElementById('download').addEventListener('click', download);
 
+  readGrid(true);
   renderPage();
   statusEl.textContent = "Ready.";
 }
