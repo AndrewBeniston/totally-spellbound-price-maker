@@ -126,10 +126,20 @@
     </div>
     <div class="field">
       <label for="rows">Down (rows)</label>
-      <input id="rows" type="number" min="1" max="9" step="1" value="9">
+      <input id="rows" type="number" min="1" max="9" step="1" value="7">
     </div>
   </div>
-  <div class="grid-info" id="gridInfo">6 × 9 = 54 emblems per sheet</div>
+  <div class="grid-row">
+    <div class="field">
+      <label for="padTop">Top padding (px)</label>
+      <input id="padTop" type="number" min="0" max="800" step="10" value="150">
+    </div>
+    <div class="field">
+      <label for="padBottom">Bottom padding (px)</label>
+      <input id="padBottom" type="number" min="0" max="800" step="10" value="150">
+    </div>
+  </div>
+  <div class="grid-info" id="gridInfo">6 × 7 = 42 emblems per sheet</div>
   <div class="divider"></div>
 
   <div class="field">
@@ -177,18 +187,24 @@ const CELL_H = Math.round(CELL_W * 1200 / 1171);  // 384 (matches template aspec
 const MAX_COLS = Math.floor(PAGE_W / CELL_W);     // 6
 const MAX_ROWS = Math.floor(PAGE_H / CELL_H);     // 9
 
-// The spread area is frozen to the full 6 × 9 extent, so any smaller grid
-// fans its emblems out across the SAME width and height they cover today
-// (same outer margins: 115px left/right, 26px top/bottom). Tile size is
-// never touched, so the price — sized off CELL_H — stays identical.
+// Horizontal spread is frozen to the full-width 6-column extent (115px left/
+// right margins), so any column count fans out across the same width. Tile
+// size is never touched, so the price — sized off CELL_H — stays identical.
 const AREA_X = Math.floor((PAGE_W - CELL_W * MAX_COLS) / 2);   // 115
-const AREA_Y = Math.floor((PAGE_H - CELL_H * MAX_ROWS) / 2);   // 26
 const AREA_W = CELL_W * MAX_COLS;                              // 2250
-const AREA_H = CELL_H * MAX_ROWS;                              // 3456
 
-// Live grid (editable). Defaults to the original 6 × 9 = 54 sheet.
-let cols = MAX_COLS;
-let rows = MAX_ROWS;
+// Vertical placement is padding-driven: top & bottom margins from the page
+// edge, rows spread evenly between. Defaults to a comfortable margin so the
+// top/bottom rows aren't jammed against the page edge.
+const DEFAULT_PAD = 150;   // ~0.5" at 300 DPI
+let padTop = DEFAULT_PAD;
+let padBottom = DEFAULT_PAD;
+
+// Live grid (editable). Default sheet is 6 × 7 = 42.
+const DEFAULT_COLS = MAX_COLS;   // 6
+const DEFAULT_ROWS = 7;
+let cols = DEFAULT_COLS;
+let rows = DEFAULT_ROWS;
 
 // Logo (template) and price are fixed. The title + visible description
 // lines render as a single block, vertically centred in the space between
@@ -225,6 +241,10 @@ const gridInputs = {
   cols: document.getElementById('cols'),
   rows: document.getElementById('rows'),
 };
+const padInputs = {
+  top: document.getElementById('padTop'),
+  bottom: document.getElementById('padBottom'),
+};
 const gridInfoEl = document.getElementById('gridInfo');
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -241,8 +261,25 @@ function axisPositions(n, areaStart, areaSpan, cell) {
   return out;
 }
 
+// Vertical spread area from the paddings, clamped so the rows never overlap
+// (tiles never scale): if padTop+padBottom leave less than rows×CELL_H, both
+// paddings scale down proportionally to the most that still fits.
+function verticalArea() {
+  const maxTotalPad = Math.max(0, PAGE_H - rows * CELL_H);
+  let pt = padTop, pb = padBottom;
+  const clamped = (pt + pb) > maxTotalPad;
+  if (clamped) {
+    pt = Math.floor(maxTotalPad * (pt / (pt + pb || 1)));
+    pb = maxTotalPad - pt;
+  }
+  return { top: pt, span: PAGE_H - pt - pb, clamped };
+}
+
 function updateGridInfo() {
-  if (gridInfoEl) gridInfoEl.textContent = `${cols} × ${rows} = ${cols * rows} emblems per sheet`;
+  if (!gridInfoEl) return;
+  let txt = `${cols} × ${rows} = ${cols * rows} emblems per sheet`;
+  if (verticalArea().clamped) txt += ` · top/bottom padding capped to fit ${rows} rows`;
+  gridInfoEl.textContent = txt;
 }
 
 // Read the grid inputs, clamped to what fits at the fixed emblem size.
@@ -251,11 +288,17 @@ function updateGridInfo() {
 function readGrid(reflect) {
   const c = parseInt(gridInputs.cols.value, 10);
   const r = parseInt(gridInputs.rows.value, 10);
-  cols = clamp(isNaN(c) ? MAX_COLS : c, 1, MAX_COLS);
-  rows = clamp(isNaN(r) ? MAX_ROWS : r, 1, MAX_ROWS);
+  cols = clamp(isNaN(c) ? DEFAULT_COLS : c, 1, MAX_COLS);
+  rows = clamp(isNaN(r) ? DEFAULT_ROWS : r, 1, MAX_ROWS);
+  const pt = parseInt(padInputs.top.value, 10);
+  const pb = parseInt(padInputs.bottom.value, 10);
+  padTop = clamp(isNaN(pt) ? DEFAULT_PAD : pt, 0, 800);
+  padBottom = clamp(isNaN(pb) ? DEFAULT_PAD : pb, 0, 800);
   if (reflect) {
     gridInputs.cols.value = cols;
     gridInputs.rows.value = rows;
+    padInputs.top.value = padTop;
+    padInputs.bottom.value = padBottom;
   }
   updateGridInfo();
 }
@@ -378,8 +421,9 @@ function renderPage() {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, PAGE_W, PAGE_H);
   renderCell();
+  const va = verticalArea();
   const xs = axisPositions(cols, AREA_X, AREA_W, CELL_W);
-  const ys = axisPositions(rows, AREA_Y, AREA_H, CELL_H);
+  const ys = axisPositions(rows, va.top, va.span, CELL_H);
   for (const y of ys) {
     for (const x of xs) {
       ctx.drawImage(cellCanvas, Math.round(x), Math.round(y));
@@ -481,6 +525,10 @@ async function init() {
   ['cols', 'rows'].forEach(key => {
     gridInputs[key].addEventListener('input', () => { readGrid(false); renderPage(); });
     gridInputs[key].addEventListener('change', () => { readGrid(true); renderPage(); });
+  });
+  ['top', 'bottom'].forEach(key => {
+    padInputs[key].addEventListener('input', () => { readGrid(false); renderPage(); });
+    padInputs[key].addEventListener('change', () => { readGrid(true); renderPage(); });
   });
   document.getElementById('download').addEventListener('click', download);
 
